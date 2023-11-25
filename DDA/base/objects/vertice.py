@@ -35,7 +35,8 @@ class Vertice():
     
     def dot(self,v):
         return self.vector.dot(v.vector)
-    
+    def cross(self,v):
+        return np.cross(self,v)
     @property
     def length(self):
         return np.sqrt(self.dot(self))

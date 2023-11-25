@@ -15,12 +15,13 @@ import numpy as np
 from shapely import Polygon
 from ..settings import GravityDirection2D,G
 from ..base.objects.vertice import Vertice
+from .Joints import Joints
 import json
 class Block(blockBase):
     """
     Class representing a block element.
     """
-    def __init__(self, id, vertices, edges, material:BlockMaterial) -> None:
+    def __init__(self, id, vertices, edges, material:BlockMaterial,joints:Joints=None) -> None:
         super().__init__(id, vertices, edges, material)
         self.Kii = np.zeros((6,6))
         self.Fi = np.zeros((6,1))
@@ -34,8 +35,22 @@ class Block(blockBase):
         self.Loads=[]
         self.Dt=np.zeros((6,1)) #位移[u,v,r0,sx,sy,rxy]
         self.Boundary=[]
+        self.joints=joints
+        self.edgeJoints=[]
         self.init()
 
+    def getEdgeJoint(self,eid):
+        '''
+            eid:edge id ,same with the first endpoint
+        '''
+        if self.joints is None:
+            return None
+        else:
+            ep=self.edges[eid]
+            p1=self.vertices[ep[0]]
+            p2=self.vertices[ep[1]]
+            return self.joints.find_edge_on_joint([p1,p2])
+        
     def init(self):
         self.KiiInit()
         self.Finit()
@@ -44,6 +59,10 @@ class Block(blockBase):
         self.initDi=np.copy(self.Di)
         self.computeEdgeDirectionAngle()#边的方向角
         self.computeVerticeInteriorAngle()#顶点的内角
+        for i in range(self.en):
+            joint=self.getEdgeJoint(i)
+            j=joint.id if joint else -1
+            self.edgeJoints.append([i,j])
 
     def KiiInit(self):
         Kii=np.zeros((6,6))#自身属性矩阵，初始化
@@ -79,6 +98,8 @@ class Block(blockBase):
                 self.addLineLoad(p1,p2,F)
         return self.Fi
     
+    def setFi(self,Fi):
+        self.Fi=Fi
     def setInitVelocity(self,v):
         '''
             设置块体的初始速度,

@@ -55,27 +55,22 @@ class DDAAnalysis(systemBase):
     def init(self,current_time_step=1):
         #初始化，数据准备
         N=self.nBlock
-        self.K=np.zeros((6*N,6*N))#整体刚度矩阵
         self.D=np.zeros((6*N,1))#位移
-        self.F=np.zeros((6*N,1))#外力
-        #整体质量矩阵
-        self.Mm=np.zeros((6*N,6*N))#质量矩阵--不变的
+        self.Friction=np.zeros((6*N,1))
+        self.initKF()
         if current_time_step==1:
+            #整体质量矩阵
+            self.Mm=np.zeros((6*N,6*N))#质量矩阵--不变的
             self.Vt=np.zeros((6*N,1))#块体的初始速度向量
             self.At=np.zeros((6*N,1))#块体的初始加速度向量
             for block in self.blocks:
                 bid=block.id
                 self.Vt[6*bid:6*bid+6,:]=block.Vt
                 self.At[6*bid:6*bid+6,:]=block.At
+                self.Mm[6*bid:6*bid+6,6*bid:6*bid+6]=block.Mm()
             self.Vnew=np.copy(self.Vt)
             self.Anew=np.copy(self.At)
-            
-        for block in self.blocks:
-            bid=block.id
-            self.Mm[6*bid:6*bid+6,6*bid:6*bid+6]=block.Mm()
-            self.K[bid*6:(bid+1)*6,bid*6:(bid+1)*6]=block.Kii#K
-            self.F[bid*6:(bid+1)*6]=block.Fi#force
-        
+                    
         self.blockAvgArea=np.array([self.n_time_steps,1])#保存每一步中块体的平均面积
         #compute domain scale
         domainScale=self.compute_domain_scale()#w0
@@ -83,17 +78,33 @@ class DDAAnalysis(systemBase):
         self.constants.init(self.max_displacement)#初始化
         #保存块体的初始平均面积
         self.blockAvgArea[0]=self.getBlockAvgArea()
-    def step(self):
-        self.Vnew=np.copy(self.Vt)
-        self.Anew=np.copy(self.At)
+    def initKF(self):
+        N=self.nBlock
+        self.K=np.zeros((6*N,6*N))#整体刚度矩阵
+        self.F=np.zeros((6*N,1))#外力
+        for block in self.blocks:
+            bid=block.id
+            self.K[bid*6:(bid+1)*6,bid*6:(bid+1)*6]=block.Kii#K
+            self.F[bid*6:(bid+1)*6]=block.Fi#force
+    def saveState(self):
+        self.Kcopy=np.copy(self.K)
+        self.Fcopy=np.copy(self.F)
+        for block in self.blocks:
+            bid=block.id
+            self.F[bid*6:(bid+1)*6]+=block.Fi#force
 
-    def updateBlockStatus(self):
+    def restoreState(self):
+        self.K=np.copy(self.Kcopy)
+        self.F=np.copy(self.F)
+
+    def updateBlockStatus(self,Dnew,Vnew,Anew,Fric):
         '''更新块的状态'''
         for block in self.blocks:
             id=block.id
-            bdt=self.D[id*6:id*6+6].flatten()
-            bvt=self.Vnew[id*6:id*6+6]
-            bat=self.Anew[id*6:id*6+6]
+            bdt=Dnew[id*6:id*6+6].flatten()
+            bvt=Vnew[id*6:id*6+6]
+            bat=Anew[id*6:id*6+6]
+            block.setFi(Fric[id*6:id*6+6])
             block.Vt=bvt
             block.At=bat
             block.updateDi(bdt)

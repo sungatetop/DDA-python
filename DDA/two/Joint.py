@@ -8,13 +8,7 @@
 '''
 from ..base.objects.joint import jointBase
 class Joint(jointBase):
-   def __init__(self, id, start_point, end_point, friction_angle=0, cohesion=0, tension=0, **kwargs) -> None:
-      super().__init__(id, start_point, end_point, friction_angle, cohesion, tension, **kwargs)
+   def __init__(self,start_point, end_point, friction_angle=0, cohesion=0, tension=0, **kwargs) -> None:
+      super().__init__(start_point, end_point,2,friction_angle, cohesion, tension, **kwargs)
       pass
-   
-   @property
-   def direction(self):
-      d=self.end_point-self.start_point
-      l=self.length
-      return d/l
     

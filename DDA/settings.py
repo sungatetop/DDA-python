@@ -6,8 +6,8 @@
 @Author      :chenbaolin
 @version      :1.0
 '''
-G=-9.81
-GravityDirection2D=[0,1]
+G=9.81
+GravityDirection2D=[0,-1]
 GravityDirection3D=[0,0,1]
 #newmark parameter
 ALPHA=0.5

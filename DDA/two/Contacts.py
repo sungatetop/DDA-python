@@ -1,3 +1,11 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+'''
+@Description:       Contacts manage
+@Date     :2023/11/25 03:56:30
+@Author      :chenbaolin
+@version      :0.1
+'''
 from .Constants import Constants
 from ..base.maths.funcs import *
 from ..settings import G,EPSILON
@@ -5,6 +13,9 @@ import numpy as np
 from ..base.objects.contactState import contactState
 from ..base.objects.contactEnum import contactEnum
 import copy
+'''
+refline should bind jointtype
+'''
 class Contacts():
     def __init__(self,block_i,block_j,constants:Constants=None):
         self.id=None
@@ -20,6 +31,9 @@ class Contacts():
         self.previous_lock_info=[]
         self.locks=[]#current
         self.contact_index=[]
+        self.joint_normal_spring=1.0e9 #dynamic
+        self.contact_penalty=1.0e9
+        self.total_oci_count=1 # @TODO
         '''
             contact info
             contact_type,vi,vj,vj+1,vj,vi,vi-1
@@ -483,8 +497,6 @@ class Contacts():
             contact_i[7]=0#TCK's omega shear contact normalized edge length parameter
             contact_i[8]=0#Length of contact for computing cohesion.
             #kk here to initialize ?
-        for precontact in range(len(self.previous_lock_info)):
-            self.locks[precontact][TRANSFER]=0
 
         for precontact in range(len(self.previous_contact_info)):
             self.locks[precontact][TRANSFER]=0
@@ -623,39 +635,7 @@ class Contacts():
         fj_ng=-c*ngr.T #公式2.83
         dn=S0/l+ner.dot(self.block_i.Di)+ngr.dot(self.block_j.Di) #公式2.75
         return dn,kii_nee,kij_neg,kji_nge,kjj_ngg,fi_ne,fj_ng
-    
-    def contact_normal_KF2(self,block_i,block_j,p1,p2,p3,pn):
-        '''
-            block_i->vertice
-            block_j->refline
-
-            法向接触,根据书籍P61，公式2.73
-            p1--block_i的顶点
-            p2--block_j的接触边端点
-            p3--....
-            pn--弹簧法向刚度
-        '''
-        x1,y1=p1
-        x2,y2=p2
-        x3,y3=p3
-        S0=compute_point_penetrate(p1,p2,p3)
-        l=compute_line_length(p2,p3)
-        Ti1=block_i.Ti(x1,y1)
-        Tj2=block_j.Ti(x2,y2)
-        Tj3=block_j.Ti(x3,y3)
-
-        ner=np.array([[y2-y3],[x3-x2]]).T.dot(Ti1)/l #公式2.76
-        ngr=np.array([[y3-y1],[x1-x3]]).T.dot(Tj2)/l+np.array([[y1-y2],[x2-x1]]).T.dot(Tj3)/l
-        c=pn*S0/l #common constant part
-        kii_nee=pn*ner.T.dot(ner) #公式2.78
-        kij_neg=pn*ner.T.dot(ngr) #公式2.79
-        kji_nge=pn*ngr.T.dot(ner) #公式2.80
-        kjj_ngg=pn*ngr.T.dot(ngr) #公式2.81
-        fi_ne=-c*ner.T #公式2.82
-        fj_ng=-c*ngr.T #公式2.83
-        dn=S0/l+ner.dot(block_i.Di)+ngr.dot(block_j.Di) #公式2.75
-        return dn,kii_nee,kij_neg,kji_nge,kjj_ngg,fi_ne,fj_ng
-        
+            
     def contact_shear_KF(self,p1,ep,ps):
         '''
             剪切接触,书籍P64
@@ -859,12 +839,7 @@ class Contacts():
                 x3,y3=p3
                 reflinelength=compute_line_length(p2,p3)
                 pendist=compute_penetrate_dist(p1,p2,p3)
-                Ss0=0
-                if contact_i[TYPE]==VE:
-                    omega=contact_i[9]
-                    #shear S0
-                    Ss0=(x1-(1-omega)*x2 - omega*x3)*(x3-x2)+(y1-(1-omega)*y2 - omega*y3)*(y3-y2)
-                    sheardisp=Ss0/reflinelength
+                
                 #-----------------------start submatrices calculation-------------------------
                 #normal
                 pn=p*lockStates[1][1]
@@ -886,8 +861,14 @@ class Contacts():
                 kjj_ngg=pn*ngr.T.dot(ngr) #公式2.81
                 fi_ne=-c*ner.T #公式2.82
                 fj_ng=-c*ngr.T #公式2.83
-                
                 #shear
+                Ss0=0
+                if contact_i[TYPE]==VE:
+                    omega=contact_i[9]
+                    #shear S0
+                    Ss0=(x1-(1-omega)*x2 - omega*x3)*(x3-x2)+(y1-(1-omega)*y2 - omega*y3)*(y3-y2)
+                    sheardisp=Ss0/reflinelength
+                    contact_i[10]=sheardisp#
                 #p0=(1-omega)*p2+omega*p3
                 #Ss0=(p3-p3).dot(p1-p0)
                 ed=np.array([[x3-x2],[y3-y2]])#接触边的方向
@@ -969,10 +950,10 @@ class Contacts():
                 #normalforce=-pn*pendist
                 #shearforce=-ps*sheardisp
                 #V-V contact
-                # if contact_i[TYPE]!=VE or locks_i[CURRENT]!=SLIDING:
-                #     continue
-                # if locks_i[PREVIOUS]==OPEN and oci_count==1:
-                #     continue
+                if contact_i[TYPE]!=VE or locks_i[CURRENT]!=SLIDING:
+                    continue
+                if locks_i[PREVIOUS]==OPEN and oci_count==1:
+                    continue
                 #SetFriction force
                 #摩擦力根据节理的参数进行计算
                 #假设节理的粘聚力c=10000Pa,摩擦角phi=20，弹性模量joint_spring_k=1.0e9粘聚力等于有效接触长度乘于c,
@@ -980,18 +961,19 @@ class Contacts():
                 if pendist2>0:
                     pendist2=0
                 #here to get jointtype from previous contacts
-                phi=20
+                print("pendist2",pendist2,pendist)
+                phi=self.phi
                 cohesion=10000*contact_i[8]#粘结的有效长度，边与边的重叠
-                jointSpringK=1.0e9#Pa
+                #joint_normal_spring=1.0e9#Pa
                 ell=0
                 if locks_i[0]==1:
                     ell=cohesion
                 
-                normalforce=abs(pendist2)*jointSpringK
+                normalforce=abs(pendist2)*self.joint_normal_spring
                 frictionforce=normalforce*np.tan(np.deg2rad(phi))+ell
-                #frictionforce*=np.sign(contact_i[10])
+                frictionforce*=np.sign(sheardisp)
                 fi=-frictionforce*ef
-                fj=-frictionforce*gf
+                fj=frictionforce*gf
                 if block_i.id==self.block_i.id:
                     Fi+=fi
                     Fj+=fj
@@ -1001,9 +983,262 @@ class Contacts():
                 #end jj
             #end contact i
         #end all
-        
-
         return kii,kij,kji,kjj,Fi,Fj
+    
+    def get_contact_KF(self,contact_penalty=1.0e9):
+        '''
+            same with above for debug
+        '''
+        kii=np.zeros((6,6))
+        kij=np.zeros((6,6))
+        kji=np.zeros((6,6))
+        kjj=np.zeros((6,6))
+        Fi=np.zeros((6,1))
+        Fj=np.zeros((6,1))
+        fi=np.zeros((6,1))#friction to i
+        fj=np.zeros((6,1))#friction to j
+        TYPE=0
+        s2nratio=self.constants.get_shear_norm_ratio()
+        for contact_i in self.current_contact_info:
+            ctype=contact_i[TYPE]
+            for jj in range(ctype+1):
+                #V-E,if V-V twice V-E
+                p1i=contact_i[1+3*jj]
+                p2j=contact_i[2+3*jj]
+                p3j=contact_i[3+3*jj]
+                block_i=self.getBlockByVertextIndex(p1i)
+                block_j=self.getBlockByVertextIndex(p2j)
+                p1=self.getVerticeCoord(p1i)#vertice
+                p2=self.getVerticeCoord(p2j)#1st end of refline
+                p3=self.getVerticeCoord(p3j)#2nd end of refline
+                #reflinelength=compute_line_length(p2,p3)
+                pendist=compute_penetrate_dist(p1,p2,p3)
+                pn=contact_penalty
+                ps=contact_penalty/s2nratio*0
+                dn,kii_nee,kij_neg,kji_nge,kjj_ngg,fi_ne,fj_ng=self.contact_normal_KF(p1,[p2,p3],pn)
+                pendist2=0
+                if pendist>0:
+                    pendist2=0
+                else:
+                    pendist2=pendist
+                #print("pendist",pendist)
+                ds,kii_see,kij_seg,kji_sge,kjj_sgg,fi_se,fj_sg=self.contact_shear_KF(p1,[p2,p3],ps)
+                #just cal nomatter 
+                phi=20
+                cohesion=10000*contact_i[8]#粘结的有效长度，边与边的重叠
+                fi,fj=self.frictional_force(p1,[p2,p3],self.joint_normal_spring,pendist2,phi,cohesion)
+                if block_i.id==self.block_i.id:
+                    #i->j
+                    kii+=kii_nee
+                    kij+=kij_neg
+                    kji+=kji_nge
+                    kjj+=kjj_ngg
+                    Fi+=fi_ne
+                    Fj+=fj_ng
+
+                    kii+=kii_see
+                    kij+=kij_seg
+                    kji+=kji_sge
+                    kjj+=kjj_sgg
+                    Fi+=fi_se
+                    Fj+=fj_sg
+                else:
+                    #j->i
+                    kii+=kjj_ngg
+                    kij+=kji_nge
+                    kji+=kij_neg
+                    kjj+=kii_nee
+                    Fi+=fj_ng
+                    Fj+=fi_ne
+
+                    kii+=kjj_sgg
+                    kij+=kji_sge
+                    kji+=kij_seg
+                    kjj+=kii_see
+                    Fi+=fj_sg
+                    Fj+=fi_se
+
+        return kii,kij,kji,kjj,Fi,Fj,fi,fj
+
+    def contact_judge_after_iteration(self,D):
+        SHEAR_TOL = 1.0e-9
+        openclose=self.constants.get_openclose()
+        opencriteria=self.constants.get_opencriteria()
+        shear_norm_ratio=self.constants.get_shear_norm_ratio()
+        VE=0
+        VV=1
+        OPEN=0
+        SLIDING=1
+        LOCKED=2
+        PREVIOUS=1
+        CURRENT=2
+        TENSILE=0
+        REORDER=3#SWAP
+        PENDIST=7# in contact info penetration save in 7
+        penetration=0
+        nContacts=len(self.current_contact_info)
+        for i in range(nContacts):
+            lock_i=self.locks[i]
+            lock_i[PREVIOUS]=lock_i[CURRENT]
+            #gravity flag???
+        qq=np.zeros((4,3))
+        p=np.zeros((4,4))
+        pendist=[0,0,0]
+        for c in range(nContacts):
+            contact_c=self.current_contact_info[c]
+            lock_c=self.locks[c]
+            CTYPE=contact_c[0]
+            for j in range(CTYPE+1):
+                for i in range(1,4):
+                    vi=contact_c[3*j+i]
+                    block_i=self.getBlockByVertextIndex(vi)
+                    #block id ,vertex i belong to block
+                    bid=block_i.id
+                    x,y=self.getVerticeCoord(vi)
+                    qq[i][1]=x
+                    qq[i][2]=y
+                    Ti=block_i.Ti(x,y)
+                    Di=D[6*bid:6*bid+6]
+                    #temp storage for contact vertex displacement
+                    d=Ti.dot(Di)
+                    p[i][1]=d[0]
+                    p[i][2]=d[1]
+                    #end i
+                x1 = qq[1][1]
+                y1 = qq[1][2]
+                x2 = qq[2][1]
+                y2 = qq[2][2]
+                x3 = qq[3][1]
+                y3 = qq[3][2]
+                reflinelength=np.sqrt((x3-x2)*(x3-x2)+(y3-y2)*(y3-y2))
+                #S0<0 mean penetration during previous oc iteration
+                S0=(x2-x1)*(y3-y1)-(y2-y1)*(x3-x1)
+
+                dispdet  = p[1][1]*(y2-y3) + p[1][2]*(x3-x2)
+                dispdet += p[2][1]*(y3-y1) + p[2][2]*(x1-x3)
+                dispdet += p[3][1]*(y1-y2) + p[3][2]*(x2-x1)
+                #new Distance from refrence line
+                pendist[j+1]=(S0+dispdet)/reflinelength
+                #end j
+            if CTYPE==VE or pendist[1]>=pendist[2]:
+                contact_c[PENDIST]=pendist[1]#normal penetration
+                lock_c[CURRENT]=SLIDING
+            else:#VV contact
+                contact_c[PENDIST]=pendist[2]
+                lock_c[CURRENT]=REORDER
+            # block joint property setting
+            #here to get contact refline joint type by refline first end point
+            #here assume joint phi=20,c=0,tstrength=0
+            c=0
+            t=0
+            cohesion=c*contact_c[8]#cohesion length saved in contact
+            tstrength=t*contact_c[8]
+            phi=20
+            #----end block joint property setting---------
+            self.joint_normal_spring=self.contact_penalty
+
+            if lock_c[PREVIOUS]==OPEN:
+                if contact_c[PENDIST]> -openclose:# multiply domainscale,here we not
+                    lock_c[CURRENT]=OPEN
+            elif CTYPE==VE or lock_c[PREVIOUS]==lock_c[CURRENT]:
+                e1=0
+                if lock_c[TENSILE]==1 and CTYPE==VE:
+                    e1=tstrength/self.joint_normal_spring
+                if contact_c[PENDIST]>e1 + opencriteria:#multiply domainscale,here we not
+                    lock_c[CURRENT]=OPEN
+                
+            elif lock_c[PREVIOUS]!=lock_c[CURRENT]:
+                if lock_c[PREVIOUS]==REORDER:
+                    penetration=pendist[2]
+                else:
+                    penetration=pendist[1]
+                if penetration>opencriteria:#multiply domainscale,here we not
+                    lock_c[CURRENT]=OPEN
+            else:
+                print("some problem here")
+            #----end block-----------
+            if CTYPE==VV or lock_c[CURRENT]==OPEN:
+                continue
+            if lock_c[PREVIOUS]==OPEN:
+                t0=-S0/dispdet #S0 is twice original area of contact before displacement
+                if t0<0:
+                    t0=0
+                if t0>1:
+                    t0=1
+                if S0<0 or abs(dispdet)<1.0e-10:#very small
+                    t0=0
+                #from open to close compute new lock position
+                #new position
+                x4 = x1+t0*p[1][1]
+                y4 = y1+t0*p[1][2]
+                x5 = x2+t0*p[2][1]
+                y5 = y2+t0*p[2][2]
+                x6 = x3+t0*p[3][1]
+                y6 = y3+t0*p[3][2]
+                newreflinelength=(x6-x5)*(x6-x5) + (y6-y5)*(y6-y5)
+                new_ratio=((x4-x5)*(x6-x5) + (y4-y5)*(y6-y5))/newreflinelength
+                contact_c[9]=new_ratio
+                #close  if previously OPEN contacts
+            omega=contact_c[9]
+            x0 = (1 - omega)*x2 + omega*x3
+            y0 = (1 - omega)*y2 + omega*y3
+            #new position caused by displacement
+            x4 = (1 - omega)*p[2][1] + omega*p[3][1]
+            y4 = (1 - omega)*p[2][2] + omega*p[3][2]
+            #compute new shear
+            s1  = (x1-x0)*(x3-x2) + (y1-y0)*(y3-y2)
+            s1 += (p[1][1]-x4)*(x3-x2) + (p[1][2]-y4)*(y3-y2)
+            #contribution to perp offset from displacement of ref line endpoints
+            s1 += (x1-x0)*(p[3][1]-p[2][1]) + (y1-y0)*(p[3][2]-p[2][2])
+            prev_shear_direction=np.sign(contact_c[10])
+            curr_shear_length=s1/reflinelength
+            contact_c[9]=curr_shear_length #update contact
+
+            if lock_c[PREVIOUS]==OPEN:
+                #precompute friction tangents
+                tanphi=np.tan(np.deg2rad(phi))
+                #friction vs normal force
+                if abs(contact_c[8])<abs(tanphi*contact_c[PENDIST]):
+                    lock_c[CURRENT]=LOCKED
+                continue
+            elif lock_c[PREVIOUS]==LOCKED:
+                e1=0
+                if lock_c[TENSILE]==1:
+                    e1=cohesion/self.joint_normal_spring
+                if contact_c[PENDIST]>0:
+                    tanphi=0
+                else:
+                    tanphi=np.tan(np.deg2rad(phi))
+                #shear vs friction force
+                if abs(contact_c[PENDIST])*tanphi+e1> abs(contact_c[10])/shear_norm_ratio:
+                    lock_c[CURRENT]=LOCKED
+                continue
+            elif prev_shear_direction*curr_shear_length<-SHEAR_TOL:# multiply domainscale ,here we not
+                # sliding direction change???
+                if phi>0.9:#???? why 0.9
+                    lock_c[CURRENT]=LOCKED
+                #here set gravity!!@TODO
+                continue
+            elif prev_shear_direction*curr_shear_length>=SHEAR_TOL:
+                continue
+            else:
+                print(" assert nothing...")
+        #end contact loop
+        #-----------check convergence---------------
+        i7=0
+        i8=0
+        for i in range(nContacts):
+            lock_i=self.locks[i]
+            if lock_i[PREVIOUS]==OPEN and lock_i[CURRENT]>OPEN:
+                i7+=1
+            if lock_i[CURRENT]==OPEN and lock_i[PREVIOUS]>OPEN:
+                i8+=1
+        # here we only penalty method
+        if (i7+i8)>0 or self.total_oci_count==1:# total_oci_count may not be here
+            print("i7+i8",i7+i8,self.total_oci_count)
+            return 1
+        else:
+            return -1 #m9
     
     #------------------------some helpful functions---------------------------------
     def pointLastAndNext(self,index):

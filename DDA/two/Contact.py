@@ -17,6 +17,7 @@ class Contact():
         self.tension=0
         self.previous_contact_info=[]
         self.current_contact_info=[]
+        self.locks=[]
         
         '''
             contact info
