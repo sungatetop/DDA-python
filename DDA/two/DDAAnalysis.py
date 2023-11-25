@@ -10,11 +10,18 @@ import logging.config
 from ..base.colorlogger import init_logging
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
-from ..base.utils import getColorByScalar
+from ..base.utils import getColorByScalar,saveVTK
+import os.path as osp
+import os
 init_logging("file.log")
 logger=logging.getLogger("DDAAnalysis")
 class DDAAnalysis(systemBase):
-    def __init__(self,constants:Constants,**kwargs) -> None:
+    def __init__(self,constants:Constants,work_dir="./simulation",**kwargs) -> None:
+        self.workDir=work_dir
+        if not osp.exists(work_dir):
+            os.makedirs(work_dir,exist_ok=True)
+        else:
+            print(f"work directory:{work_dir} has exist,will be overwrite!")
         #geometry
         self.blocks=[]
         self.bolts=[]
@@ -218,14 +225,11 @@ class DDAAnalysis(systemBase):
             contact_ij.contact_finding_by_angle_criteria()
 
     def getContactKF(self):
-        '''计算接触产生的K、F'''
-        N=self.nBlock
-        cK=np.zeros((6*N,6*N))
-        cF=np.zeros((6*N,1))
-        for contact in self.contacts:
-            contact.kn=self.JointNormalSpring
-
+        '''计算接触产生的K、F,@TODO'''
         pass
+    def save_to_VTK(self):
+        '''save'''
+        saveVTK(self.blocks,f"{self.workDir}/step{self.current_time_step}.vtp")
 
     def assemble(self):
         '''组装矩阵K'''

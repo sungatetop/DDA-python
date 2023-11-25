@@ -74,6 +74,8 @@ DDAS.init()
 print(DDAS.F)
 current_oc_count=0
 total_oc_count=0
+DDAS.save_to_VTK()#save 
+#simpe demo only one pair
 for step in range(1,11):
     M=DDAS.Mm
     contact=Contacts(rBlock,sBlock,constants)
@@ -92,7 +94,7 @@ for step in range(1,11):
     F=DDAS.F+2*M.dot(Vt)/dt#惯性力
     Frictions=np.zeros((6*DDAS.nBlock,1))
     
-    for oci in range(5):
+    while True:
         print("step",step)
         print(contact.current_contact_info,contact.locks)
         #df18: add and subtract submatrix of contact  
@@ -114,19 +116,23 @@ for step in range(1,11):
         #solve
         Dnew=np.linalg.inv(K).dot(F)
         print(Dnew,Anew,Vt)
-        flag=contact.contact_judge_after_iteration(Dnew)
         contact.total_oci_count+=1
-        print("flag",flag)
+        
         current_oc_count+=1
         total_oc_count+=1
         #contact jude after iteration
-
+        flag=contact.contact_judge_after_iteration(Dnew)
+        print("flag",flag)
+        if flag==-1:
+            break
         #计算出Dnew后检查，是否存在接触和拉力，以调整弹簧刚度
     #save state
     At=np.copy(Anew)
     Vt=np.copy(Vnew)
     Dt=np.copy(Dnew)
     DDAS.updateBlockStatus(Dnew,Vnew,Anew,Frictions)
+    DDAS.current_time_step+=1
+    DDAS.save_to_VTK()
     for i in range(DDAS.nBlock):
         block=DDAS.blocks[i]
         #block.updateDi(Dnew[i*6:i*6+6].flatten())
