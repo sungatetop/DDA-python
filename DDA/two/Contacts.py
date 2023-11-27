@@ -497,7 +497,7 @@ class Contacts():
             contact_i[7]=0#TCK's omega shear contact normalized edge length parameter
             contact_i[8]=0#Length of contact for computing cohesion.
             #kk here to initialize ?
-
+        previous_locks=copy.deepcopy(self.locks)
         for precontact in range(len(self.previous_contact_info)):
             self.locks[precontact][TRANSFER]=0
             if self.locks[precontact][SAVE]==0:
@@ -509,7 +509,7 @@ class Contacts():
             pre_contact_type=preContact_i[0]
             if preContact_i[6]>0:
                 pre_contact_type=1
-            for jj in range(pre_contact_type):
+            for jj in range(pre_contact_type+1):
                 i1=preContact_i[1]#接触的vertice i 属于block_i
                 j1=preContact_i[2]#接触的refline 属于block_j,vertice j
                 #与当前的contact对应,因为我使用的就是block_i->block_j,并且不会变化
@@ -518,7 +518,7 @@ class Contacts():
                     cur_contact_type=cur_contact_i[6]
                     if cur_contact_type>0:
                         cur_contact_type=1
-                    for j in range(cur_contact_type):#判断与上一步的接触是不是一致的
+                    for j in range(cur_contact_type+1):#判断与上一步的接触是不是一致的
                         if cur_contact_i[3*j+1]!=preContact_i[3*jj+1]:
                             continue
                         if cur_contact_i[3*j+2]!=preContact_i[3*jj+2]:
@@ -529,14 +529,13 @@ class Contacts():
                         cur_contact_i[7]=preContact_i[7]
                         cur_contact_i[8]=preContact_i[8]
                         cur_contact_i[9]=preContact_i[9]
-                        locks_i[j+1]=locks_i[precontact][jj+3]
+                        locks_i[j+1]=previous_locks[jj+3]
                         #保存边的节理信息
                         #here
 
                         if contact_i[0]==0 and preContact_i[0]>0:
                             locks_i[PREVIOUS]=LOKED
-
-
+        
         for i in range(len(self.current_contact_info)):
             locks_i=self.locks[i]
             previousstate=locks_i[PREVIOUS]
@@ -553,6 +552,7 @@ class Contacts():
                 locks_i[CURRENT]=1
             if currentstate==OPEN:
                 locks_i[CURRENT]=SWAP
+        #保存节理信息
         
 
     def set_initial_locks(self,current_time_step):
@@ -726,7 +726,11 @@ class Contacts():
     def save_current_contact(self):
         '''保存上一步的接触信息'''
         self.previous_contact_info=copy.deepcopy(self.current_contact_info)
-        self.previous_lock_info=copy.deepcopy(self.locks)
+        for i in range(len(self.locks)):
+            self.locks[i][3]=copy.deepcopy(self.locks[i][2]) #contact flag
+            if self.locks[i][2]!=2:
+                self.locks[i][0]=0
+
 
     def find_contacts(self,current_time_step):
         '''查找接触信息'''

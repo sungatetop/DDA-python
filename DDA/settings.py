@@ -13,3 +13,11 @@ GravityDirection3D=[0,0,1]
 ALPHA=0.5
 BETA=1.0
 EPSILON=1.0e-6
+
+# Contact TYPE Enum
+VE=0
+VV=1
+EE=2
+VF=3
+EF=4
+FF=5

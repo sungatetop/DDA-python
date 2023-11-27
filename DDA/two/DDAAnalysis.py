@@ -1,3 +1,11 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+'''
+@Description:       DDA analysis
+@Date     :2023/11/25 09:05:33
+@Author      :chenbaolin
+@version      :0.1
+'''
 from .Constants import Constants
 from .Boundary import Boundary
 from .Contact import Contact
